@@ -384,11 +384,9 @@ function loadAgenda(){
 
   var proxies = [
     'https://tight-leaf-20eb.onloop-system.workers.dev/?url=' + encodeURIComponent(url),
-    'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url),
-    'https://api.allorigins.win/raw?url=' + encodeURIComponent(url),
-    'https://thingproxy.freeboard.io/fetch/' + url
+    'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url)
   ];
-  var proxyNames = ['cloudflare-worker', 'codetabs', 'allorigins', 'thingproxy'];
+  var proxyNames = ['cloudflare-worker', 'codetabs'];
   var errors = [];
 
   function attempt(i){
@@ -426,7 +424,7 @@ function loadAgenda(){
   attempt(0);
 }
 
-function corsfixProxy(u){ return 'https://proxy.corsfix.com/?' + u; }
+function wallHubProxy(u){ return 'https://tight-leaf-20eb.onloop-system.workers.dev/?url=' + encodeURIComponent(u); }
 
 async function fetchIcloudAlbumPhotos(albumUrl){
   var m = albumUrl.match(/#([A-Za-z0-9_-]+)/);
@@ -435,7 +433,7 @@ async function fetchIcloudAlbumPhotos(albumUrl){
   var host = 'p23-sharedstreams.icloud.com';
   var body = JSON.stringify({ streamCtag: null });
   async function postJson(h, path){
-    var res = await fetch(corsfixProxy('https://' + h + '/' + token + path), {
+    var res = await fetch(wallHubProxy('https://' + h + '/' + token + path), {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body
     });
     return res.json();
@@ -448,7 +446,7 @@ async function fetchIcloudAlbumPhotos(albumUrl){
   var photos = (data && data.photos) || [];
   if (!photos.length) return [];
   var guids = photos.map(function(p){ return p.photoGuid; });
-  var assetRes = await fetch(corsfixProxy('https://' + host + '/' + token + '/sharedstreams/webasseturls'), {
+  var assetRes = await fetch(wallHubProxy('https://' + host + '/' + token + '/sharedstreams/webasseturls'), {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ photoGuids: guids })
   });
