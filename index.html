@@ -108,9 +108,14 @@
         <input type="text" id="icsInput" placeholder="https://p.../calendar.ics">
       </div>
       <div>
-        <label>Photos: one direct image URL per line</label>
+        <label>iCloud Shared Album link (experimental)</label>
+        <input type="text" id="icloudAlbumInput" placeholder="https://www.icloud.com/sharedalbum/#B0...">
+        <div class="hint">Uses an unofficial Apple API through a Corsfix proxy. Requires whitelisting this site's domain in a free Corsfix account (see setup notes). May break without warning since it's not an official API — if it stops returning photos, the manual list below is used automatically instead.</div>
+      </div>
+      <div>
+        <label>Photos: one direct image URL per line (fallback)</label>
         <textarea id="photosInput" placeholder="https://.../photo1.jpg&#10;https://.../photo2.jpg"></textarea>
-        <div class="hint">Needs to be a direct link to the image file (ends in .jpg/.png/etc), not a webpage. Easiest way to get these: upload to an Imgur album and copy each direct link, or open your iCloud Shared Album in a browser and use "Copy Image Address" on each photo.</div>
+        <div class="hint">Used automatically if the album above is empty or fails. Needs direct links to image files (ending in .jpg/.png/etc), not a webpage.</div>
       </div>
       <div class="settings-actions">
         <button id="saveSettings">Save</button>
@@ -158,11 +163,12 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const hubDocRef = doc(db, "hub", "state");
 
-var state = { tasks: [], grocery: [], icsUrl: '', photos: [] };
+var state = { tasks: [], grocery: [], icsUrl: '', icloudAlbumUrl: '', photos: [] };
 var activeList = 'tasks';
 var fallbackCoords = { lat: -33.5, lon: -70.75, loc: 'Santiago' };
-var photoIndex = 0, photoTimer = null, showingA = true;
+var photoIndex = 0, photoTimer = null, showingA = true, albumRefreshTimer = null;
 var lastIcsUrl = null;
+var lastPhotoConfig = null;
 
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
 
@@ -176,16 +182,22 @@ onSnapshot(hubDocRef, function(snap){
     state.tasks = data.tasks || [];
     state.grocery = data.grocery || [];
     state.icsUrl = data.icsUrl || '';
+    state.icloudAlbumUrl = data.icloudAlbumUrl || '';
     state.photos = data.photos || [];
   }
   renderLists();
   document.getElementById('icsInput').value = state.icsUrl || '';
+  document.getElementById('icloudAlbumInput').value = state.icloudAlbumUrl || '';
   document.getElementById('photosInput').value = (state.photos || []).join('\n');
   if (state.icsUrl !== lastIcsUrl){
     lastIcsUrl = state.icsUrl;
     loadAgenda();
   }
-  setupPhotos();
+  var photoConfigKey = state.icloudAlbumUrl + '|' + JSON.stringify(state.photos);
+  if (photoConfigKey !== lastPhotoConfig){
+    lastPhotoConfig = photoConfigKey;
+    setupPhotos();
+  }
 }, function(err){
   console.error('Firestore listen failed', err);
   renderAgenda([], 'Could not connect to Firebase. Check your config at the top of the file.');
@@ -247,6 +259,7 @@ document.getElementById('gearBtn').addEventListener('click', function(){
 });
 document.getElementById('saveSettings').addEventListener('click', function(){
   state.icsUrl = document.getElementById('icsInput').value.trim();
+  state.icloudAlbumUrl = document.getElementById('icloudAlbumInput').value.trim();
   state.photos = document.getElementById('photosInput').value
     .split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
   saveState();
@@ -400,9 +413,63 @@ function loadAgenda(){
   attempt(0, null);
 }
 
-function setupPhotos(){
+function corsfixProxy(u){ return 'https://proxy.corsfix.com/?' + u; }
+
+async function fetchIcloudAlbumPhotos(albumUrl){
+  var m = albumUrl.match(/#([A-Za-z0-9_-]+)/);
+  if (!m) return [];
+  var token = m[1];
+  var host = 'p23-sharedstreams.icloud.com';
+  var body = JSON.stringify({ streamCtag: null });
+  async function postJson(h, path){
+    var res = await fetch(corsfixProxy('https://' + h + '/' + token + path), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body
+    });
+    return res.json();
+  }
+  var data = await postJson(host, '/sharedstreams/webstream');
+  if (data && data['X-Apple-MMe-Host']) {
+    host = data['X-Apple-MMe-Host'];
+    data = await postJson(host, '/sharedstreams/webstream');
+  }
+  var photos = (data && data.photos) || [];
+  if (!photos.length) return [];
+  var guids = photos.map(function(p){ return p.photoGuid; });
+  var assetRes = await fetch(corsfixProxy('https://' + host + '/' + token + '/sharedstreams/webasseturls'), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ photoGuids: guids })
+  });
+  var assetData = await assetRes.json();
+  var items = (assetData && assetData.items) || {};
+  var urls = [];
+  photos.forEach(function(p){
+    var derivs = p.derivatives || {};
+    var keys = Object.keys(derivs);
+    if (!keys.length) return;
+    var best = keys.reduce(function(a,b){
+      return (+((derivs[a]||{}).width||0) > +((derivs[b]||{}).width||0)) ? a : b;
+    });
+    var checksum = derivs[best].checksum;
+    var item = items[checksum];
+    if (item) urls.push('https://' + item.url_location + item.url_path);
+  });
+  return urls;
+}
+
+async function getPhotoList(){
+  if (state.icloudAlbumUrl){
+    try {
+      var fetched = await fetchIcloudAlbumPhotos(state.icloudAlbumUrl);
+      if (fetched.length) return fetched;
+    } catch(e){ console.error('iCloud album fetch failed', e); }
+  }
+  return state.photos || [];
+}
+
+async function setupPhotos(){
   if (photoTimer) { clearInterval(photoTimer); photoTimer = null; }
-  var photos = state.photos || [];
+  if (albumRefreshTimer) { clearInterval(albumRefreshTimer); albumRefreshTimer = null; }
+  var photos = await getPhotoList();
   var scrim = document.getElementById('scrim');
   var bgA = document.getElementById('bgA'), bgB = document.getElementById('bgB');
   if (!photos.length){
@@ -412,20 +479,32 @@ function setupPhotos(){
   }
   scrim.style.background = 'rgba(12,13,15,0.62)';
   photoIndex = 0; showingA = true;
+  var failCount = 0;
   bgA.src = photos[0];
+  bgA.onerror = function(){ failCount++; if (failCount < photos.length) advancePhoto(); };
   bgA.classList.add('active');
   if (photos.length > 1){
-    photoTimer = setInterval(function(){
-      photoIndex = (photoIndex + 1) % photos.length;
-      var showEl = showingA ? bgB : bgA;
-      var hideEl = showingA ? bgA : bgB;
-      showEl.src = photos[photoIndex];
-      showEl.onload = function(){
-        showEl.classList.add('active');
-        hideEl.classList.remove('active');
-      };
+    photoTimer = setInterval(function(){ failCount = 0; advancePhoto(); }, 20000);
+  }
+  if (state.icloudAlbumUrl){
+    albumRefreshTimer = setInterval(setupPhotos, 900000);
+  }
+
+  function advancePhoto(){
+    photoIndex = (photoIndex + 1) % photos.length;
+    var showEl = showingA ? bgB : bgA;
+    var hideEl = showingA ? bgA : bgB;
+    showEl.src = photos[photoIndex];
+    showEl.onload = function(){
+      showEl.classList.add('active');
+      hideEl.classList.remove('active');
+    };
+    showEl.onerror = function(){
+      failCount++;
       showingA = !showingA;
-    }, 20000);
+      if (failCount < photos.length) advancePhoto();
+    };
+    showingA = !showingA;
   }
 }
 
