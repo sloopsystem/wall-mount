@@ -401,12 +401,19 @@ function loadAgenda(){
         attempt(i + 1);
         return;
       }
-      var events = parseIcs(text);
+      var allEvents = parseIcs(text);
       var todayStart = new Date(); todayStart.setHours(0,0,0,0);
-      events = events.filter(function(e){ return e.start >= todayStart; });
+      var events = allEvents.filter(function(e){ return e.start >= todayStart; });
       events.sort(function(a,b){ return a.start - b.start; });
       if (!events.length){
-        renderAgenda([], 'Calendar loaded but has no upcoming events.');
+        if (allEvents.length){
+          var sample = allEvents.slice(0, 5).map(function(e){
+            return e.title + ' (' + e.start.toLocaleDateString('en-US') + ')';
+          }).join(', ');
+          renderAgenda([], 'Parsed ' + allEvents.length + ' event(s) but none are upcoming. Sample: ' + sample);
+        } else {
+          renderAgenda([], 'Calendar loaded but no events could be parsed from it (likely all-recurring events, which this simple parser does not expand).');
+        }
         return;
       }
       renderAgenda(events);
