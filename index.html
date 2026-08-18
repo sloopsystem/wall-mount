@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#16181c">
+<link rel="manifest" href="manifest.json">
+<title>Wall Hub</title>
+<style>
+  :root{
+    --bg:#16181c; --surface:#1f2226cc; --line:#2c2f34;
+    --amber:#e8a33d; --green:#6fb98f; --red:#d8695a;
+    --text:#f2efe9; --muted:#8a8d91;
+    --mono: 'JetBrains Mono', 'Roboto Mono', ui-monospace, monospace;
+    --sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--bg);}
+  .hub-outer{position:relative;min-height:100vh;overflow:hidden;background:var(--bg);}
+  .bg-photo{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;
+    transition:opacity 1.6s ease;z-index:0;}
+  .bg-photo.active{opacity:1;}
+  .bg-scrim{position:fixed;inset:0;background:rgba(12,13,15,0.62);z-index:1;}
+  .hub{position:relative;z-index:2;color:var(--text);font-family:var(--sans);
+    min-height:100vh;padding:2.5vw 3vw;display:flex;flex-direction:column;gap:1.6rem;}
+  .hub *:focus-visible{outline:2px solid var(--amber);outline-offset:2px;}
+  .row{display:flex;gap:1.5rem;flex-wrap:wrap;}
+  .header{justify-content:space-between;align-items:flex-end;
+    border-bottom:1px solid var(--line);padding-bottom:1.4rem;}
+  .clock{font-family:var(--mono);font-variant-numeric:tabular-nums;
+    font-size:clamp(48px,8vw,84px);font-weight:500;letter-spacing:-1px;line-height:1;
+    text-shadow:0 2px 12px rgba(0,0,0,0.4);}
+  .date{color:var(--muted);font-size:15px;margin-top:8px;text-transform:capitalize;}
+  .weather{display:flex;align-items:center;gap:10px;}
+  .weather-temp{font-family:var(--mono);font-size:32px;font-weight:500;}
+  .weather-loc{color:var(--muted);font-size:12px;margin-top:2px;}
+  .gear{background:none;border:1px solid var(--line);color:var(--muted);width:34px;height:34px;
+    border-radius:8px;cursor:pointer;font-size:15px;flex-shrink:0;}
+  .gear:hover{border-color:var(--amber);color:var(--amber);}
+  .eyebrow{font-size:11px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase;margin-bottom:10px;}
+  .board{flex:1 1 340px;background:var(--surface);backdrop-filter:blur(10px);
+    border-radius:12px;padding:1.2rem 1.3rem;border:1px solid var(--line);}
+  .agenda-row{display:flex;align-items:baseline;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);}
+  .agenda-row:last-child{border-bottom:none;}
+  .agenda-row.next{border-left:3px solid var(--amber);padding-left:10px;margin-left:-13px;}
+  .agenda-when{font-family:var(--mono);font-size:13px;color:var(--muted);min-width:44px;}
+  .agenda-title{font-size:14.5px;flex:1;}
+  .agenda-eta{font-size:11px;color:var(--amber);font-family:var(--mono);}
+  .empty{color:var(--muted);font-size:13px;padding:6px 0;}
+  .tabs{display:flex;gap:6px;margin-bottom:14px;}
+  .tab{background:none;border:1px solid var(--line);color:var(--muted);padding:6px 14px;
+    border-radius:20px;font-size:12.5px;cursor:pointer;}
+  .tab.active{border-color:var(--amber);color:var(--amber);}
+  .add-row{display:flex;gap:8px;margin-bottom:10px;}
+  .add-row input{flex:1;background:var(--bg);border:1px solid var(--line);color:var(--text);
+    border-radius:8px;padding:8px 10px;font-size:14px;}
+  .add-row input::placeholder{color:var(--muted);}
+  .add-row button{background:var(--amber);border:none;color:#241a06;width:36px;border-radius:8px;
+    font-size:18px;cursor:pointer;}
+  .item{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);}
+  .item:last-child{border-bottom:none;}
+  .item input[type=checkbox]{width:16px;height:16px;accent-color:var(--green);}
+  .item span{flex:1;font-size:14.5px;}
+  .item.done span{color:var(--muted);text-decoration:line-through;}
+  .item button{background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;}
+  .item button:hover{color:var(--red);}
+  .settings{background:var(--surface);backdrop-filter:blur(10px);border:1px solid var(--line);
+    border-radius:12px;padding:1rem 1.2rem;display:flex;flex-direction:column;gap:12px;}
+  .settings label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px;}
+  .settings input,.settings textarea{width:100%;background:var(--bg);border:1px solid var(--line);
+    color:var(--text);border-radius:8px;padding:8px 10px;font-size:13px;font-family:var(--sans);}
+  .settings textarea{resize:vertical;min-height:70px;}
+  .settings-actions{display:flex;gap:8px;justify-content:flex-end;}
+  .settings-actions button{background:var(--amber);border:none;color:#241a06;padding:7px 14px;
+    border-radius:8px;font-size:13px;cursor:pointer;}
+  .hint{font-size:12px;color:var(--muted);line-height:1.5;}
+  .hidden{display:none;}
+</style>
+</head>
+<body>
+
+<div class="hub-outer">
+  <img class="bg-photo" id="bgA" alt="">
+  <img class="bg-photo" id="bgB" alt="">
+  <div class="bg-scrim" id="scrim"></div>
+
+  <div class="hub">
+    <div class="row header">
+      <div>
+        <div class="clock" id="clock">--:--</div>
+        <div class="date" id="date"></div>
+      </div>
+      <div class="row" style="align-items:center;gap:1.2rem;">
+        <div class="weather" id="weather">
+          <div>
+            <div class="weather-temp" id="wx-temp">--&deg;</div>
+            <div class="weather-loc" id="wx-loc">Finding weather...</div>
+          </div>
+        </div>
+        <button class="gear" id="gearBtn" title="Settings" aria-label="Settings">&#9881;</button>
+      </div>
+    </div>
+
+    <div class="settings hidden" id="settingsPanel">
+      <div>
+        <label>Calendar .ics link (iCloud, Google, etc.)</label>
+        <input type="text" id="icsInput" placeholder="https://p.../calendar.ics">
+      </div>
+      <div>
+        <label>Photos: one direct image URL per line</label>
+        <textarea id="photosInput" placeholder="https://.../photo1.jpg&#10;https://.../photo2.jpg"></textarea>
+        <div class="hint">Needs to be a direct link to the image file (ends in .jpg/.png/etc), not a webpage. Easiest way to get these: upload to an Imgur album and copy each direct link, or open your iCloud Shared Album in a browser and use "Copy Image Address" on each photo.</div>
+      </div>
+      <div class="settings-actions">
+        <button id="saveSettings">Save</button>
+      </div>
+    </div>
+
+    <div class="row" style="flex:1;align-items:flex-start;">
+      <div class="board" style="flex:1.1 1 380px;">
+        <div class="eyebrow">Agenda</div>
+        <div id="agendaList"><div class="empty">Loading...</div></div>
+      </div>
+
+      <div class="board" style="flex:1 1 320px;">
+        <div class="tabs">
+          <button class="tab active" data-list="tasks">Tasks</button>
+          <button class="tab" data-list="grocery">Grocery</button>
+        </div>
+        <div class="add-row">
+          <input type="text" id="addInput" placeholder="Add item...">
+          <button id="addBtn" aria-label="Add">+</button>
+        </div>
+        <div id="listItems"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+import { getFirestore, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+// ====== FILL THIS IN with your own Firebase project's config ======
+// Firebase Console -> Project Settings -> General -> Your apps -> SDK setup and configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyBS654jNfSeFCOUSZSdj69OyoWsmcdoF28",
+  authDomain: "wall-calendar-afb9b.firebaseapp.com",
+  projectId: "wall-calendar-afb9b",
+  storageBucket: "wall-calendar-afb9b.firebasestorage.app",
+  messagingSenderId: "331887738576",
+  appId: "1:331887738576:web:0d3e3083d437b9acfbe8d5"
+};
+// ====================================================================
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const hubDocRef = doc(db, "hub", "state");
+
+var state = { tasks: [], grocery: [], icsUrl: '', photos: [] };
+var activeList = 'tasks';
+var fallbackCoords = { lat: -33.5, lon: -70.75, loc: 'Santiago' };
+var photoIndex = 0, photoTimer = null, showingA = true;
+var lastIcsUrl = null;
+
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+
+async function saveState(){
+  try { await setDoc(hubDocRef, state); } catch(e){ console.error('Firestore save failed', e); }
+}
+
+onSnapshot(hubDocRef, function(snap){
+  if (snap.exists()){
+    var data = snap.data();
+    state.tasks = data.tasks || [];
+    state.grocery = data.grocery || [];
+    state.icsUrl = data.icsUrl || '';
+    state.photos = data.photos || [];
+  }
+  renderLists();
+  document.getElementById('icsInput').value = state.icsUrl || '';
+  document.getElementById('photosInput').value = (state.photos || []).join('\n');
+  if (state.icsUrl !== lastIcsUrl){
+    lastIcsUrl = state.icsUrl;
+    loadAgenda();
+  }
+  setupPhotos();
+}, function(err){
+  console.error('Firestore listen failed', err);
+  renderAgenda([], 'Could not connect to Firebase. Check your config at the top of the file.');
+});
+
+function renderLists(){
+  var wrap = document.getElementById('listItems');
+  var items = state[activeList];
+  wrap.innerHTML = '';
+  if (!items.length){
+    wrap.innerHTML = '<div class="empty">Nothing here yet.</div>';
+    return;
+  }
+  items.forEach(function(it){
+    var row = document.createElement('div');
+    row.className = 'item' + (it.done ? ' done' : '');
+    var cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.checked = !!it.done;
+    cb.addEventListener('change', function(){
+      it.done = cb.checked;
+      saveState();
+      renderLists();
+    });
+    var span = document.createElement('span'); span.textContent = it.text;
+    var del = document.createElement('button'); del.textContent = '\u00d7'; del.setAttribute('aria-label','Delete');
+    del.addEventListener('click', function(){
+      state[activeList] = state[activeList].filter(function(x){ return x.id !== it.id; });
+      saveState();
+      renderLists();
+    });
+    row.appendChild(cb); row.appendChild(span); row.appendChild(del);
+    wrap.appendChild(row);
+  });
+}
+
+document.querySelectorAll('.tab').forEach(function(tab){
+  tab.addEventListener('click', function(){
+    document.querySelectorAll('.tab').forEach(function(t){ t.classList.remove('active'); });
+    tab.classList.add('active');
+    activeList = tab.dataset.list;
+    renderLists();
+  });
+});
+
+function addItem(){
+  var input = document.getElementById('addInput');
+  var text = input.value.trim();
+  if (!text) return;
+  state[activeList].push({ id: uid(), text: text, done: false });
+  saveState();
+  input.value = '';
+  renderLists();
+}
+document.getElementById('addBtn').addEventListener('click', addItem);
+document.getElementById('addInput').addEventListener('keydown', function(e){ if (e.key === 'Enter') addItem(); });
+
+document.getElementById('gearBtn').addEventListener('click', function(){
+  document.getElementById('settingsPanel').classList.toggle('hidden');
+});
+document.getElementById('saveSettings').addEventListener('click', function(){
+  state.icsUrl = document.getElementById('icsInput').value.trim();
+  state.photos = document.getElementById('photosInput').value
+    .split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
+  saveState();
+  document.getElementById('settingsPanel').classList.add('hidden');
+});
+
+function tick(){
+  var now = new Date();
+  document.getElementById('clock').textContent =
+    String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
+  document.getElementById('date').textContent =
+    now.toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long' });
+}
+tick(); setInterval(tick, 1000);
+
+function wxLabel(code){
+  if (code === 0) return 'Clear';
+  if (code <= 3) return 'Partly cloudy';
+  if (code <= 48) return 'Foggy';
+  if (code <= 67) return 'Rain';
+  if (code <= 77) return 'Snow';
+  if (code <= 82) return 'Showers';
+  return 'Storm';
+}
+
+function fetchWeather(lat, lon, label){
+  var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon +
+    '&current=temperature_2m,weather_code&timezone=auto';
+  fetch(url).then(function(r){ return r.json(); }).then(function(d){
+    var t = Math.round(d.current.temperature_2m);
+    document.getElementById('wx-temp').textContent = t + '\u00b0';
+    document.getElementById('wx-loc').textContent = wxLabel(d.current.weather_code) + ' \u00b7 ' + label;
+  }).catch(function(){
+    document.getElementById('wx-loc').textContent = 'Weather unavailable';
+  });
+}
+
+function loadWeather(){
+  if (navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(function(pos){
+      fetchWeather(pos.coords.latitude, pos.coords.longitude, 'here');
+    }, function(){
+      fetchWeather(fallbackCoords.lat, fallbackCoords.lon, fallbackCoords.loc);
+    }, { timeout: 6000 });
+  } else {
+    fetchWeather(fallbackCoords.lat, fallbackCoords.lon, fallbackCoords.loc);
+  }
+}
+
+function unfoldIcs(text){
+  return text.replace(/\r\n/g, '\n').replace(/\n[ \t]/g, '');
+}
+function parseIcsDate(v){
+  var m = v.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?$/);
+  if (!m) return null;
+  if (!m[4]) return new Date(+m[1], +m[2]-1, +m[3]);
+  if (m[7]) return new Date(Date.UTC(+m[1], +m[2]-1, +m[3], +m[4], +m[5], +m[6]));
+  return new Date(+m[1], +m[2]-1, +m[3], +m[4], +m[5], +m[6]);
+}
+function parseIcs(text){
+  var events = [];
+  var blocks = unfoldIcs(text).split('BEGIN:VEVENT').slice(1);
+  blocks.forEach(function(b){
+    var summaryM = b.match(/SUMMARY:(.*)/);
+    var startM = b.match(/DTSTART[^:]*:([0-9TZ]+)/);
+    if (!summaryM || !startM) return;
+    var d = parseIcsDate(startM[1]);
+    if (!d) return;
+    events.push({ title: summaryM[1].trim(), start: d });
+  });
+  return events;
+}
+function fmtEta(d){
+  var now = new Date();
+  var diffMin = Math.round((d - now) / 60000);
+  if (diffMin < 0) return 'today';
+  if (diffMin < 60) return 'in ' + diffMin + ' min';
+  var h = Math.floor(diffMin / 60);
+  if (d.toDateString() === now.toDateString()) return 'in ' + h + ' h';
+  var tmr = new Date(now); tmr.setDate(now.getDate() + 1);
+  if (d.toDateString() === tmr.toDateString()) return 'tomorrow';
+  return d.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' });
+}
+
+function renderAgenda(events, note){
+  var wrap = document.getElementById('agendaList');
+  wrap.innerHTML = '';
+  if (note) {
+    var n = document.createElement('div'); n.className = 'empty'; n.textContent = note;
+    wrap.appendChild(n);
+  }
+  if (!events.length){
+    if (!note) wrap.innerHTML = '<div class="empty">No upcoming events. Set up your calendar via the gear icon.</div>';
+    return;
+  }
+  events.slice(0,8).forEach(function(ev, i){
+    var row = document.createElement('div');
+    row.className = 'agenda-row' + (i === 0 ? ' next' : '');
+    var when = document.createElement('div'); when.className = 'agenda-when';
+    when.textContent = ev.start.toLocaleDateString('en-US', { day:'2-digit', month:'2-digit' });
+    var title = document.createElement('div'); title.className = 'agenda-title'; title.textContent = ev.title;
+    var eta = document.createElement('div'); eta.className = 'agenda-eta'; eta.textContent = fmtEta(ev.start);
+    row.appendChild(when); row.appendChild(title); row.appendChild(eta);
+    wrap.appendChild(row);
+  });
+}
+
+function loadAgenda(){
+  var url = state.icsUrl;
+  if (!url){
+    renderAgenda([], 'No calendar configured yet.');
+    return;
+  }
+  if (url.indexOf('webcal://') === 0) url = 'https://' + url.slice('webcal://'.length);
+  var proxied = 'https://api.codetabs.com/v1/proxy/?quest=' + encodeURIComponent(url);
+  fetch(proxied).then(function(r){
+    if (!r.ok) { return r.text().then(function(t){ throw new Error('HTTP ' + r.status + ': ' + t.slice(0,200)); }); }
+    return r.text();
+  }).then(function(text){
+    if (text.indexOf('BEGIN:VCALENDAR') === -1){
+      renderAgenda([], 'Response received but does not look like a calendar.');
+      return;
+    }
+    var events = parseIcs(text);
+    var todayStart = new Date(); todayStart.setHours(0,0,0,0);
+    events = events.filter(function(e){ return e.start >= todayStart; });
+    events.sort(function(a,b){ return a.start - b.start; });
+    if (!events.length){
+      renderAgenda([], 'Calendar loaded but has no upcoming events.');
+      return;
+    }
+    renderAgenda(events);
+  }).catch(function(err){
+    renderAgenda([], 'Error: ' + err.message);
+  });
+}
+
+function setupPhotos(){
+  if (photoTimer) { clearInterval(photoTimer); photoTimer = null; }
+  var photos = state.photos || [];
+  var scrim = document.getElementById('scrim');
+  var bgA = document.getElementById('bgA'), bgB = document.getElementById('bgB');
+  if (!photos.length){
+    bgA.classList.remove('active'); bgB.classList.remove('active');
+    scrim.style.background = 'transparent';
+    return;
+  }
+  scrim.style.background = 'rgba(12,13,15,0.62)';
+  photoIndex = 0; showingA = true;
+  bgA.src = photos[0];
+  bgA.classList.add('active');
+  if (photos.length > 1){
+    photoTimer = setInterval(function(){
+      photoIndex = (photoIndex + 1) % photos.length;
+      var showEl = showingA ? bgB : bgA;
+      var hideEl = showingA ? bgA : bgB;
+      showEl.src = photos[photoIndex];
+      showEl.onload = function(){
+        showEl.classList.add('active');
+        hideEl.classList.remove('active');
+      };
+      showingA = !showingA;
+    }, 20000);
+  }
+}
+
+loadWeather();
+setInterval(loadWeather, 1800000);
+</script>
+</body>
+</html>

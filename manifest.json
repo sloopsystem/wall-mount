@@ -1,0 +1,10 @@
+{
+  "name": "Wall Hub",
+  "short_name": "Wall Hub",
+  "start_url": "./index.html",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#16181c",
+  "theme_color": "#16181c",
+  "icons": []
+}
