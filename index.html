@@ -354,6 +354,13 @@ function renderAgenda(events, note){
   });
 }
 
+function tryFetchIcs(proxyUrl){
+  return fetch(proxyUrl).then(function(r){
+    if (!r.ok) { return r.text().then(function(t){ throw new Error('HTTP ' + r.status + ': ' + t.slice(0,200)); }); }
+    return r.text();
+  });
+}
+
 function loadAgenda(){
   var url = state.icsUrl;
   if (!url){
@@ -361,27 +368,36 @@ function loadAgenda(){
     return;
   }
   if (url.indexOf('webcal://') === 0) url = 'https://' + url.slice('webcal://'.length);
-  var proxied = 'https://api.codetabs.com/v1/proxy/?quest=' + encodeURIComponent(url);
-  fetch(proxied).then(function(r){
-    if (!r.ok) { return r.text().then(function(t){ throw new Error('HTTP ' + r.status + ': ' + t.slice(0,200)); }); }
-    return r.text();
-  }).then(function(text){
-    if (text.indexOf('BEGIN:VCALENDAR') === -1){
-      renderAgenda([], 'Response received but does not look like a calendar.');
+
+  var proxies = [
+    'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url),
+    'https://api.allorigins.win/raw?url=' + encodeURIComponent(url)
+  ];
+
+  function attempt(i, lastErr){
+    if (i >= proxies.length){
+      renderAgenda([], 'Could not load the calendar right now (tried ' + proxies.length + ' proxies). Last error: ' + (lastErr ? lastErr.message : 'unknown'));
       return;
     }
-    var events = parseIcs(text);
-    var todayStart = new Date(); todayStart.setHours(0,0,0,0);
-    events = events.filter(function(e){ return e.start >= todayStart; });
-    events.sort(function(a,b){ return a.start - b.start; });
-    if (!events.length){
-      renderAgenda([], 'Calendar loaded but has no upcoming events.');
-      return;
-    }
-    renderAgenda(events);
-  }).catch(function(err){
-    renderAgenda([], 'Error: ' + err.message);
-  });
+    tryFetchIcs(proxies[i]).then(function(text){
+      if (text.indexOf('BEGIN:VCALENDAR') === -1){
+        attempt(i + 1, new Error('response was not a calendar'));
+        return;
+      }
+      var events = parseIcs(text);
+      var todayStart = new Date(); todayStart.setHours(0,0,0,0);
+      events = events.filter(function(e){ return e.start >= todayStart; });
+      events.sort(function(a,b){ return a.start - b.start; });
+      if (!events.length){
+        renderAgenda([], 'Calendar loaded but has no upcoming events.');
+        return;
+      }
+      renderAgenda(events);
+    }).catch(function(err){
+      attempt(i + 1, err);
+    });
+  }
+  attempt(0, null);
 }
 
 function setupPhotos(){
@@ -415,6 +431,10 @@ function setupPhotos(){
 
 loadWeather();
 setInterval(loadWeather, 1800000);
+
+if ('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').catch(function(){});
+}
 </script>
 </body>
 </html>
