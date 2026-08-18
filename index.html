@@ -383,11 +383,12 @@ function loadAgenda(){
   if (url.indexOf('webcal://') === 0) url = 'https://' + url.slice('webcal://'.length);
 
   var proxies = [
+    'https://tight-leaf-20eb.onloop-system.workers.dev/?url=' + encodeURIComponent(url),
     'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url),
     'https://api.allorigins.win/raw?url=' + encodeURIComponent(url),
     'https://thingproxy.freeboard.io/fetch/' + url
   ];
-  var proxyNames = ['codetabs', 'allorigins', 'thingproxy'];
+  var proxyNames = ['cloudflare-worker', 'codetabs', 'allorigins', 'thingproxy'];
   var errors = [];
 
   function attempt(i){
