@@ -384,17 +384,21 @@ function loadAgenda(){
 
   var proxies = [
     'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url),
-    'https://api.allorigins.win/raw?url=' + encodeURIComponent(url)
+    'https://api.allorigins.win/raw?url=' + encodeURIComponent(url),
+    'https://thingproxy.freeboard.io/fetch/' + url
   ];
+  var proxyNames = ['codetabs', 'allorigins', 'thingproxy'];
+  var errors = [];
 
-  function attempt(i, lastErr){
+  function attempt(i){
     if (i >= proxies.length){
-      renderAgenda([], 'Could not load the calendar right now (tried ' + proxies.length + ' proxies). Last error: ' + (lastErr ? lastErr.message : 'unknown'));
+      renderAgenda([], 'Could not load the calendar. ' + errors.join(' | '));
       return;
     }
     tryFetchIcs(proxies[i]).then(function(text){
       if (text.indexOf('BEGIN:VCALENDAR') === -1){
-        attempt(i + 1, new Error('response was not a calendar'));
+        errors.push(proxyNames[i] + ': not a calendar response');
+        attempt(i + 1);
         return;
       }
       var events = parseIcs(text);
@@ -407,10 +411,11 @@ function loadAgenda(){
       }
       renderAgenda(events);
     }).catch(function(err){
-      attempt(i + 1, err);
+      errors.push(proxyNames[i] + ': ' + err.message);
+      attempt(i + 1);
     });
   }
-  attempt(0, null);
+  attempt(0);
 }
 
 function corsfixProxy(u){ return 'https://proxy.corsfix.com/?' + u; }
